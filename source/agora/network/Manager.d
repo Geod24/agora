@@ -1065,7 +1065,7 @@ public class NetworkManager
         Instantiates a client object implementing `API`
 
         This function simply returns a client object implementing `API`.
-        In the default implementation, this returns a `RestInterfaceClient`.
+        In the default implementation, this returns an `RPCClient`.
         However, it can be overriden in test code to return an in-memory client.
 
         Params:
@@ -1079,15 +1079,13 @@ public class NetworkManager
 
     protected API getClient (Address address, Duration timeout)
     {
-        import vibe.http.client;
-
-        auto settings = new RestInterfaceSettings;
-        settings.baseURL = URL(address);
-        settings.httpClientSettings = new HTTPClientSettings;
-        settings.httpClientSettings.connectTimeout = timeout;
-        settings.httpClientSettings.readTimeout = timeout;
-
-        return new RestInterfaceClient!API(settings);
+        import vibe.inet.url;
+        import agora.network.RPC;
+        const url = URL.parse(address);
+        return new RPCClient!API(
+            url.host, url.port,
+            /* Disabled, we have our own method: */ 0.seconds, 1,
+            timeout, timeout, timeout);
     }
 
     /***************************************************************************

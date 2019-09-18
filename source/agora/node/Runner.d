@@ -18,6 +18,7 @@ import agora.api.Validator;
 import agora.common.Config;
 import agora.common.Task : Periodic;
 import agora.flash.API;
+import agora.network.RPC;
 import agora.node.admin.AdminInterface;
 import agora.node.FlashFullNode;
 import agora.node.FlashValidator;
@@ -32,7 +33,7 @@ import vibe.http.server;
 import vibe.http.router;
 import vibe.web.rest;
 
-import std.algorithm : filter;
+import std.algorithm : any, filter;
 import std.file;
 import std.format;
 import std.typecons : Tuple, tuple;
@@ -43,7 +44,8 @@ import core.time;
 public alias Listeners = Tuple!(
     FullNode, "node",
     AdminInterface, "admin",
-    HTTPListener[], "http"
+    HTTPListener[], "http",
+    TCPListener[], "tcp",
  );
 
 /*******************************************************************************
@@ -66,41 +68,46 @@ public Listeners runNode (Config config)
     auto log = Logger(__MODULE__);
     log.trace("Config is: {}", config);
 
-    auto router = new URLRouter();
-
     mkdirRecurse(config.node.data_dir);
 
     Listeners result;
+    URLRouter router = config.interfaces.any!(i => i.type == InterfaceConfig.Type.http)
+        ? new URLRouter() : null;
+
     if (config.flash.enabled && config.validator.enabled)
     {
         log.trace("Started FlashValidator...");
         auto inst = new FlashValidator(config);
-        router.registerRestInterface!(FlashValidatorAPI)(inst);
         if (config.admin.enabled)
             result.admin = inst.makeAdminInterface();
+        if (router !is null)
+            router.registerRestInterface!(FlashValidatorAPI)(inst);
         result.node = inst;
     }
     else if (config.validator.enabled)
     {
         log.trace("Started Validator...");
         auto inst = new Validator(config);
-        router.registerRestInterface!(agora.api.Validator.API)(inst);
         if (config.admin.enabled)
             result.admin = inst.makeAdminInterface();
         result.node = inst;
+        if (router !is null)
+            router.registerRestInterface!(agora.api.Validator.API)(inst);
     }
     else if (config.flash.enabled)
     {
         log.trace("Started FlashFullNode...");
         auto inst = new FlashFullNode(config);
-        router.registerRestInterface!(FlashFullNodeAPI)(inst);
         result.node = inst;
+        if (router !is null)
+            router.registerRestInterface!(FlashFullNodeAPI)(inst);
     }
     else
     {
         log.trace("Started FullNode...");
         result.node = new FullNode(config);
-        router.registerRestInterface!(agora.api.FullNode.API)(result.node);
+        if (router !is null)
+            router.registerRestInterface!(agora.api.FullNode.API)(result.node);
     }
 
     bool delegate (in NetworkAddress address) @safe nothrow isBannedDg = (in address) @safe nothrow {
@@ -124,16 +131,28 @@ public Listeners runNode (Config config)
 
     setTimer(0.seconds, &result.node.start, Periodic.No);  // asynchronous
 
-
-
     // HTTP interfaces for the node
     foreach (interface_; config.interfaces.filter!(i => i.type == InterfaceConfig.Type.http))
     {
         auto settings = new HTTPServerSettings(interface_.address);
         settings.port = interface_.port;
         settings.rejectConnectionPredicate = isBannedDg;
-        log.info("Node will be listening on HTTP interface: {}:{}", interface_.address, settings.port);
+        log.info("Node will be listening on HTTP interface: {}:{}", interface_.address, interface_.port);
         result.http ~= listenHTTP(settings, router);
+    }
+
+    // TCP interfaces for the node
+    foreach (interface_; config.interfaces.filter!(i => i.type == InterfaceConfig.Type.tcp))
+    {
+        log.info("Node will be listening on TCP interface: {}:{}", interface_.address, interface_.port);
+        if (auto fl = cast(FlashValidatorAPI) result.node)
+            result.tcp ~= listenRPC!(FlashValidatorAPI)(fl, interface_.address, interface_.port);
+        else if (auto fl = cast(agora.api.Validator.API) result.node)
+            result.tcp ~= listenRPC!(agora.api.Validator.API)(fl, interface_.address, interface_.port);
+        else if (auto fl = cast(FlashFullNodeAPI) result.node)
+            result.tcp ~= listenRPC!(FlashFullNodeAPI)(fl, interface_.address, interface_.port);
+        else
+            result.tcp ~= listenRPC!(agora.api.FullNode.API)(result.node, interface_.address, interface_.port);
     }
 
     if (result.admin !is null)

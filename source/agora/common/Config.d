@@ -133,6 +133,8 @@ public struct InterfaceConfig
         // HTTP = 0,
         /// Convenience alias for parsing
         http = 0,
+        /// A binary protocol based on TCP
+        tcp  = 1,
     }
 
     /// Ditto
@@ -145,9 +147,10 @@ public struct InterfaceConfig
     public ushort port;
 
     /// Default values when none is given in the config file
-    private static immutable InterfaceConfig[/* Type.max */ 1] Default = [
+    private static immutable InterfaceConfig[/* Type.max */ 2] Default = [
         // Publicly enabled by default
-        { type: Type.http, address: "0.0.0.0", port: 0xB0A, },
+        { type: Type.http, address:   "0.0.0.0", port: 0xB0A, },
+        { type: Type.tcp,  address:   "0.0.0.0", port: 0xA0B, },
     ];
 }
 

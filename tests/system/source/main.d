@@ -24,7 +24,7 @@ import agora.crypto.Hash;
 import agora.utils.PrettyPrinter;
 import agora.utils.Test;
 
-import vibe.web.rest;
+import vibe.inet.url;
 
 import std.algorithm;
 import std.exception;
