@@ -94,7 +94,7 @@ public Lock createLockEltoo (uint age, Point settle_X, Point update_X,
             pushed to the stack. Then verifies the signature.
 
         OP.IF
-            <age> OP.VERIFY_INPUT_LOCK
+            <age> OP.VERIFY_UNLOCK_AGE
             [sig] [new_seq] <seq + 1> <settle_pub_multi[new_seq]> OP.VERIFY_SEQ_SIG OP.TRUE
         OP_ELSE
             [sig] [new_seq] <seq + 1> <update_pub_multi> OP.VERIFY_SEQ_SIG OP.TRUE
@@ -105,7 +105,7 @@ public Lock createLockEltoo (uint age, Point settle_X, Point update_X,
 
     return Lock(LockType.Script,
         [ubyte(OP.IF)]
-            ~ toPushOpcode(age_bytes) ~ [ubyte(OP.VERIFY_INPUT_LOCK)]
+            ~ toPushOpcode(age_bytes) ~ [ubyte(OP.VERIFY_UNLOCK_AGE)]
             ~ [ubyte(32)] ~ settle_X[] ~ toPushOpcode(seq_id_bytes)
                 ~ [ubyte(OP.VERIFY_SEQ_SIG), ubyte(OP.TRUE),
          ubyte(OP.ELSE)]
