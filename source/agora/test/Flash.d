@@ -97,6 +97,8 @@ private struct PendingChannel
 
     Pair our_settle_origin_kp;
     Point their_settle_origin_pk;
+
+    Transaction funding_tx;
 }
 
 ///
@@ -108,6 +110,10 @@ private struct PendingSettlement
     Point their_settle_nonce_pk;
     Transaction prev_tx;
     Output[] outputs;
+
+    /// 1 of 2 signature that belongs to us. funder needs this so he can
+    /// send it to the peer once the trigger tx is signed and validated.
+    Signature our_sig;
 }
 
 /// Also used for trigger transactions because a trigger is the same as an update,
@@ -339,8 +345,12 @@ public class User : TestFlashAPI
 {
     /// Schnorr key-pair belonging to this user
     private const Pair kp;
-    private Registry* registry;
+    private RemoteAPI!TestAPI agora_node;  // random agora node
+    private Registry* flash_registry;
     private SchedulingTaskManager taskman;  // for scheduling
+
+    // for sending tx's to the network
+    private TestAPIManager api_manager;
 
     /// Channels which are pending and not accepted yet.
     /// Once the channel handshake is complete and only after the funding
@@ -353,11 +363,18 @@ public class User : TestFlashAPI
     private PendingUpdate[Hash] pending_updates;
 
     /// Ctor
-    public this (const Pair kp, Registry* registry)
+    public this (const Pair kp, Registry* agora_registry,
+        string agora_address, Registry* flash_registry)
     {
         this.kp = kp;
-        this.registry = registry;
+        this.flash_registry = flash_registry;
         this.taskman = new SchedulingTaskManager();
+        this.api_manager = api_manager;
+
+        auto tid = agora_registry.locate(agora_address);
+        assert(tid != typeof(tid).init, "Agora node not initialized");
+        Duration timeout;
+        this.agora_node = new RemoteAPI!TestAPI(tid, timeout);
     }
 
     /// Control API
@@ -373,7 +390,7 @@ public class User : TestFlashAPI
         writefln("%s: ctrlOpenChannel(%s, %s, %s)", this.kp.V.prettify,
             funding_amount, settle_time, peer_pk.prettify);
 
-        auto peer = this.getClient(peer_pk);
+        auto peer = this.getFlashClient(peer_pk);
         const gen_hash = hashFull(GenesisBlock);
         const Hash temp_chan_id = randomHash();
 
@@ -390,15 +407,18 @@ public class User : TestFlashAPI
         // issued to avoid data races
         this.pending_channels[temp_chan_id] = pending;
 
-        // check if the node is willing to open a channel with us
-        if (auto error = peer.openChannel(
-            gen_hash, temp_chan_id, this.kp.V, funding_amount, settle_time,
-            our_update_kp.V, our_settle_origin_kp.V))
-        {
-            this.pending_channels.remove(temp_chan_id);
-            return error;
-        }
+        this.taskman.schedule({
+            // check if the node is willing to open a channel with us
+            if (auto error = peer.openChannel(
+                gen_hash, temp_chan_id, this.kp.V, funding_amount, settle_time,
+                our_update_kp.V, our_settle_origin_kp.V))
+            {
+                this.pending_channels.remove(temp_chan_id);
+            }
+        });
 
+        // todo: we don't have a real error message here because this function
+        // is non-blocking
         return null;
     }
 
@@ -416,7 +436,7 @@ public class User : TestFlashAPI
         if (temp_chan_id in this.pending_channels)
             return "Pending channel with the given ID already exists";
 
-        auto peer = this.getClient(funder_pk);
+        auto peer = this.getFlashClient(funder_pk);
 
         const our_gen_hash = hashFull(GenesisBlock);
         if (gen_hash != our_gen_hash)
@@ -445,8 +465,12 @@ public class User : TestFlashAPI
         this.pending_channels[temp_chan_id] = pending;
 
         this.taskman.schedule({
-            peer.acceptChannel(temp_chan_id, our_update_kp.V,
-                our_settle_origin_kp.V);
+            if (auto error = peer.acceptChannel(temp_chan_id, our_update_kp.V,
+                our_settle_origin_kp.V))
+            {
+                // todo: handle this
+                writefln("Error after acceptChannel() call: %s", error);
+            }
         });
 
         return null;
@@ -475,15 +499,17 @@ public class User : TestFlashAPI
     /// prepare everything for this channel
     private void prepareChannel (ref PendingChannel pending)
     {
-        auto peer = this.getClient(pending.peer_pk);
+        auto peer = this.getFlashClient(pending.peer_pk);
 
         const Point update_pair_pk = pending.our_update_kp.V
             + pending.their_update_pk;
 
-        // create funding, don't sign and don't share yet
-        const funding_tx = this.createFundingTx(update_pair_pk, pending.utxo,
+        // create funding, we can sign it but we shouldn't share it yet
+        auto funding_tx = this.createFundingTx(update_pair_pk, pending.utxo,
             pending.funding_amount);
-        //pending.funding_tx = funding_tx;
+        funding_tx.inputs[0].unlock = genKeyUnlock(sign(this.kp, funding_tx));
+
+        pending.funding_tx = funding_tx;
 
         const Point settle_origin_pair_pk = pending.our_settle_origin_kp.V
             + pending.their_settle_origin_pk;
@@ -491,7 +517,6 @@ public class User : TestFlashAPI
         // create trigger, don't sign yet but do share it
         auto trigger_tx = this.createTriggerTx(update_pair_pk, funding_tx,
             pending.funding_amount, pending.settle_time, settle_origin_pair_pk);
-        //pending.trigger_tx = trigger_tx;
 
         // initial output allocates all the funds back to the channel creator
         Output output = Output(pending.funding_amount,
@@ -567,7 +592,7 @@ public class User : TestFlashAPI
             Transaction.init,  // trigger tx is revealed later
             outputs);
 
-        auto peer = this.getClient(pending.funder_pk);
+        auto peer = this.getFlashClient(pending.funder_pk);
 
         this.taskman.schedule(
         {
@@ -623,6 +648,7 @@ public class User : TestFlashAPI
         const our_sig = sign(channel.our_settle_origin_kp.v,
             settle_pair_pk, nonce_pair_pk, settle.our_settle_nonce_kp.v,
             challenge_settle);
+        settle.our_sig = our_sig;
 
         const settle_sig_pair = Sig(nonce_pair_pk,
               Sig.fromBlob(our_sig).s
@@ -630,6 +656,9 @@ public class User : TestFlashAPI
 
         if (!verify(settle_pair_pk, settle_sig_pair, challenge_settle))
             return "Settlement signature is invalid";
+        else
+            writefln("%s: receiveSettlementSig(%s) VALIDATED",
+                this.kp.V.prettify, temp_chan_id.prettify);
 
         // unlock script set
         const Unlock settle_unlock = createUnlockSettle(settle_sig_pair, seq_id);
@@ -650,19 +679,22 @@ public class User : TestFlashAPI
 
         // todo: protect against replay attacks. we do not want an infinite
         // loop scenario
-        if (seq_id == 1)  // todo: use seq ID 0 instead
+        if (channel.funder_pk == this.kp.V)
         {
-            // prev tx is the trigger
-            // todo: add assertion here that prev_tx is indeed a trigger tx
-            // with seq ID 1
-            this.signTriggerTx(*channel, settle.prev_tx);
-        }
-        else
-        {
-            // prev tx is a specific update tx because settlements always attach
-            // to specific txs based on their derived signature keypairs
+            if (seq_id == 1)  // todo: use seq ID 0 instead
+            {
+                // prev tx is the trigger
+                // todo: add assertion here that prev_tx is indeed a trigger tx
+                // with seq ID 1
+                this.signTriggerTx(*channel, settle.prev_tx);
+            }
+            else
+            {
+                // prev tx is a specific update tx because settlements always attach
+                // to specific txs based on their derived signature keypairs
 
-            assert(0);
+                assert(0);
+            }
         }
 
         return null;
@@ -676,7 +708,7 @@ public class User : TestFlashAPI
     {
         const our_update_nonce_kp = Pair.random();
 
-        auto peer = this.getClient(channel.peer_pk);
+        auto peer = this.getFlashClient(channel.peer_pk);
 
         const uint seq_id_1 = 1;
         this.pending_updates[channel.temp_chan_id] = PendingUpdate(
@@ -720,7 +752,7 @@ public class User : TestFlashAPI
 
         const our_update_nonce_kp = Pair.random();
 
-        auto peer = this.getClient(channel.funder_pk);
+        auto peer = this.getFlashClient(channel.funder_pk);
 
         const update_pair_pk = channel.our_update_kp.V
             + channel.their_update_pk;
@@ -756,9 +788,13 @@ public class User : TestFlashAPI
         if (channel is null)
             return "Pending channel with this ID not found";
 
-        auto trigger = channel.temp_chan_id in this.pending_updates;
+        auto trigger = temp_chan_id in this.pending_updates;
         if (trigger is null)
             return "Could not find this pending trigger tx";
+
+        auto settle = temp_chan_id in this.pending_settlements;
+        if (settle is null)
+            return "Pending settlement with this channel ID not found";
 
         // todo: not sure about this yet, maybe we should move triggers
         // to a separate map.
@@ -767,7 +803,7 @@ public class User : TestFlashAPI
 
         trigger.their_update_nonce_pk = peer_nonce_pk;
 
-        auto peer = this.getClient(channel.peer_pk);
+        auto peer = this.getFlashClient(channel.peer_pk);
 
         const update_pair_pk = channel.our_update_kp.V
             + channel.their_update_pk;
@@ -789,14 +825,35 @@ public class User : TestFlashAPI
             writefln("%s: receiveTriggerSig(%s) VALIDATED", this.kp.V.prettify,
                 temp_chan_id.prettify);
 
-        // also send our signature back, but only if we haven't already sent it.
-        // note that there could be an infinite loop here - we probably
-        // need proper state transitions.
-        // todo
-        //this.taskman.schedule({
-        //    peer.receiveTriggerSig(channel.temp_chan_id, our_update_nonce_kp.V,
-        //        our_sig);
-        //});
+        // this prevents infinite loops, we may want to optimize this
+        if (channel.funder_pk == this.kp.V)
+        {
+            // send the trigger signature
+            this.taskman.schedule({
+                if (auto error = peer.receiveTriggerSig(
+                    channel.temp_chan_id, trigger.our_update_nonce_kp.V,
+                    our_sig))
+                {
+                    writefln("Error sending trigger signature back: %s", error);
+                }
+            });
+
+            // also safe to finally send the settlement signature
+            const seq_id_1 = 1;
+            this.taskman.schedule({
+                if (auto error = peer.receiveSettlementSig(
+                    channel.temp_chan_id, seq_id_1,
+                    settle.our_settle_nonce_kp.V, settle.our_sig))
+                {
+                    writefln("Error sending settlement signature back: %s", error);
+                }
+            });
+
+            writefln("%s: Sending funding tx(%s): %s %s", this.kp.V.prettify,
+                temp_chan_id.prettify, hashFull(channel.funding_tx),
+                channel.funding_tx);
+            this.agora_node.putTransaction(channel.funding_tx);
+        }
 
         return null;
     }
@@ -849,9 +906,9 @@ public class User : TestFlashAPI
         return trigger_tx;
     }
 
-    private RemoteAPI!FlashAPI getClient (in Point peer_pk)
+    private RemoteAPI!FlashAPI getFlashClient (in Point peer_pk)
     {
-        auto tid = this.registry.locate(peer_pk.to!string);
+        auto tid = this.flash_registry.locate(peer_pk.to!string);
         assert(tid != typeof(tid).init, "Flash node not initialized");
         Duration timeout;
         return new RemoteAPI!FlashAPI(tid, timeout);
@@ -861,8 +918,11 @@ public class User : TestFlashAPI
 /// Is in charge of spawning the flash nodes
 public class UserFactory
 {
+    /// Registry of nodes
+    private Registry* agora_registry;
+
     /// we keep a separate LocalRest registry of the flash "nodes"
-    private Registry registry;
+    private Registry flash_registry;
 
     /// list of flash addresses
     private Point[] addresses;
@@ -871,21 +931,22 @@ public class UserFactory
     private RemoteAPI!TestFlashAPI[] nodes;
 
     /// Ctor
-    public this ()
+    public this (Registry* agora_registry)
     {
-        this.registry.initialize();
+        this.agora_registry = agora_registry;
+        this.flash_registry.initialize();
     }
 
     /// Create a new flash node user
-    public RemoteAPI!TestFlashAPI create (const Pair pair)
+    public RemoteAPI!TestFlashAPI create (const Pair pair, string agora_address)
     {
         RemoteAPI!TestFlashAPI api = RemoteAPI!TestFlashAPI.spawn!User(pair,
-            &this.registry);
+            this.agora_registry, agora_address, &this.flash_registry);
         api.wait();  // wait for the ctor to finish
 
         this.addresses ~= pair.V;
         this.nodes ~= api;
-        this.registry.register(pair.V.to!string, api.tid());
+        this.flash_registry.register(pair.V.to!string, api.tid());
 
         return api;
     }
@@ -894,7 +955,7 @@ public class UserFactory
     public void shutdown ()
     {
         foreach (address; this.addresses)
-            enforce(this.registry.unregister(address.to!string));
+            enforce(this.flash_registry.unregister(address.to!string));
 
         foreach (node; this.nodes)
             node.ctrl.shutdown();
@@ -912,8 +973,9 @@ unittest
     TestConf conf = TestConf.init;
     auto network = makeTestNetwork(conf);
     network.start();
-    scope(exit) network.shutdown();
-    //scope(failure) network.printLogs();
+    scope (exit) network.shutdown();
+    scope (exit) network.printLogs();
+    //scope (failure) network.printLogs();
     network.waitForDiscovery();
 
     auto nodes = network.clients;
@@ -926,24 +988,32 @@ unittest
     txs.each!(tx => node_1.putTransaction(tx));
     network.expectBlock(Height(1));
 
-    auto factory = new UserFactory();
+    // a little awkward, but we need the addresses
+    //auto
+
+    auto factory = new UserFactory(network.getRegistry());
     scope (exit) factory.shutdown();
 
     // use Schnorr
-    const alice_pair = Pair.fromScalar(secretKeyToCurveScalar(WK.Keys.A.secret));
-    const bob_pair = Pair.fromScalar(secretKeyToCurveScalar(WK.Keys.B.secret));
+    const alice_pair = Pair.fromScalar(secretKeyToCurveScalar(WK.Keys[0].secret));
+    const bob_pair = Pair.fromScalar(secretKeyToCurveScalar(WK.Keys[1].secret));
 
-    // two users
-    auto alice = factory.create(alice_pair);
-    auto bob = factory.create(bob_pair);
+    // workaround to get a handle to the node from another registry thread
+    const string address = format("Validator #%s (%s)", 0,
+        WK.Keys.NODE2.address);
+    auto alice = factory.create(alice_pair, address);
+    auto bob = factory.create(bob_pair, address);
 
     // 10 blocks settle time after / when trigger tx is published
     const Settle_10_Blocks = 10;
 
-    // alice opens a new bi-directional channel with bob
-    const alice_utxo = UTXO.getHash(hashFull(txs[0]), 0);
-    alice.ctrlOpenChannel(alice_utxo, Amount(10_000), Settle_10_Blocks,
-        bob_pair.V);
+    // the utxo the funding tx will spend (only really important for the funder)
+    const utxo = UTXO.getHash(hashFull(txs[0]), 0);
+    alice.ctrlOpenChannel(utxo, Amount(10_000), Settle_10_Blocks, bob_pair.V);
 
+    // there should be an infinite loop here which keeps creating txs
     Thread.sleep(2.seconds);
+
+    //txs.each!(tx => node_1.putTransaction(tx));
+    //network.expectBlock(Height(1));
 }
