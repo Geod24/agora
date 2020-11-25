@@ -79,6 +79,13 @@ alias LockType = agora.script.Lock.LockType;
 
 // todo: need to guard against replay attacks.
 
+// todo: we need a state transition here:
+// we need to track the funding UTXO, and then when the following is true
+// we know the channel is read:
+// - we have a valid trigger tx
+// - we have a valid settlement tx
+// - the funding utxo was published to the blockchain
+
 ///
 private struct PendingChannel
 {
@@ -317,6 +324,9 @@ public interface TestFlashAPI : FlashAPI
     /// Open a channel with another flash node.
     public string ctrlOpenChannel (in Hash utxo, in Amount funding_amount,
         in uint settle_time, in Point peer_pk);
+
+    /// used to signal back to the main thread to create more txs
+    public bool readyToExternalize ();
 }
 
 ///
@@ -361,6 +371,13 @@ public class User : TestFlashAPI
     private PendingSettlement[Hash] pending_settlements;
 
     private PendingUpdate[Hash] pending_updates;
+
+    private bool ready_to_externalize;
+
+    public override bool readyToExternalize ()
+    {
+        return this.ready_to_externalize;
+    }
 
     /// Ctor
     public this (const Pair kp, Registry* agora_registry,
@@ -853,6 +870,14 @@ public class User : TestFlashAPI
                 temp_chan_id.prettify, hashFull(channel.funding_tx),
                 channel.funding_tx);
             this.agora_node.putTransaction(channel.funding_tx);
+            this.ready_to_externalize = true;
+
+            //auto last_block = this.agora_node.getBlocksFrom(0, 1024)[$ - 1];
+            //auto txs = last_block.spendable
+            //    .map!(en => en.value.refund(WK.Keys[en.index].address).sign())
+            //    .array();
+            //txs[0] = channel.funding_tx;  // rewrite this one
+            //network.expectBlock(Height(2));
         }
 
         return null;
@@ -974,7 +999,7 @@ unittest
     auto network = makeTestNetwork(conf);
     network.start();
     scope (exit) network.shutdown();
-    scope (exit) network.printLogs();
+    //scope (exit) network.printLogs();
     //scope (failure) network.printLogs();
     network.waitForDiscovery();
 
@@ -986,7 +1011,7 @@ unittest
         .map!(en => en.value.refund(WK.Keys[en.index].address).sign())
         .array();
     txs.each!(tx => node_1.putTransaction(tx));
-    network.expectBlock(Height(1));
+    network.expectBlock(Height(1), network.blocks[0].header);
 
     // a little awkward, but we need the addresses
     //auto
@@ -1011,9 +1036,19 @@ unittest
     const utxo = UTXO.getHash(hashFull(txs[0]), 0);
     alice.ctrlOpenChannel(utxo, Amount(10_000), Settle_10_Blocks, bob_pair.V);
 
-    // there should be an infinite loop here which keeps creating txs
-    Thread.sleep(2.seconds);
+    while (!alice.readyToExternalize())
+    {
+        // there should be an infinite loop here which keeps creating txs
+        Thread.sleep(100.msecs);
+    }
 
-    //txs.each!(tx => node_1.putTransaction(tx));
-    //network.expectBlock(Height(1));
+    // one of these txs will be a double-spend
+    txs = txs.map!(tx => TxBuilder(tx, 0))
+        .enumerate()
+        .map!(en => en.value.refund(WK.Keys[en.index].address).sign())
+        .array();
+    txs.each!(tx => node_1.putTransaction(tx));
+    network.expectBlock(Height(2), network.blocks[0].header);
+
+    Thread.sleep(1.seconds);
 }
