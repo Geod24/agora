@@ -560,23 +560,28 @@ extern(D):
         const cur_height = this.ledger.getBlockHeight();
         log.trace("Received BLOCK SIG {} from node {} for block {}",
                     block_sig.signature, block_sig.public_key, block_sig.height);
-        if (cur_height >= block_sig.height)
+
+        // Ignore signatures for not-yet-externalized blocks,
+        // we only collect those via SCP for the time being
+        if (block_sig.height > cur_height)
+            return;
+
+        const block = this.ledger.blockStorage().readBlock(Height(block_sig.height));
+        if (!this.collectBlockSignature(block_sig, block.hashFull()))
+            return;
+
+        const signed_block = updateMultiSignature(block);
+        if (signed_block == Block.init)
         {
-            const block = this.ledger.blockStorage().readBlock(Height(block_sig.height));
-            if (!this.collectBlockSignature(block_sig, block.hashFull()))
-                return;
-            const signed_block = updateMultiSignature(block);
-            if (signed_block == Block.init)
-            {
-                log.trace("Failed to add signature {} for block {} public key {}",
-                    block_sig.signature, block_sig.height, block_sig.public_key);
-                return;
-            }
-            if (!this.ledger.updateBlockMultiSig(signed_block))
-            {
-                log.error("Failed to update block with signature {} for block {} publicKey {}",
-                    block_sig.signature, block_sig.height, block_sig.public_key);
-            }
+            log.trace("Failed to add signature {} for block {} public key {}",
+                block_sig.signature, block_sig.height, block_sig.public_key);
+            return;
+        }
+
+        if (!this.ledger.updateBlockMultiSig(signed_block))
+        {
+            log.error("Failed to update block with signature {} for block {} publicKey {}",
+                block_sig.signature, block_sig.height, block_sig.public_key);
         }
     }
 
