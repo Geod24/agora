@@ -349,9 +349,13 @@ public class Ledger
 
     public bool updateBlockMultiSig (const ref Block block) @safe
     {
-        if (!this.storage.updateBlockMultiSig(block))
+        try
+            this.storage.updateMultiSig(
+                block.header.height, block.header.hashFull(),
+                block.header.signature, block.header.validators);
+        catch (Exception e)
         {
-            log.error("Failed to update block: {}", prettify(block));
+            log.error("Failed to update block: {} - {}", e, prettify(block));
             return false;
         }
 
