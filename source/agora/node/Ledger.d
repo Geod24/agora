@@ -231,6 +231,18 @@ public class Ledger
         return last_block;
     }
 
+    /***************************************************************************
+
+        Returns:
+            The highest block height known to this Ledger
+
+    ***************************************************************************/
+
+    public Height getBlockHeight () @safe nothrow
+    {
+        return this.last_block.header.height;
+    }
+
     /// Provide access to the underlying `IBlockStorage`
     /// Note: For transition purpose only!
     public final inout(IBlockStorage) blockStorage () inout return
@@ -850,18 +862,6 @@ public class Ledger
             block_timestamp_tolerance,
             &this.getCoinbaseTX,
             file, line);
-    }
-
-    /***************************************************************************
-
-        Returns:
-            latest block height
-
-    ***************************************************************************/
-
-    public Height getBlockHeight () @safe nothrow
-    {
-        return this.last_block.header.height;
     }
 
     /***************************************************************************
