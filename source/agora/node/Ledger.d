@@ -183,9 +183,7 @@ public class Ledger
                 Block block = this.storage.readBlock(Height(height));
 
                 // Make sure our data on disk is valid
-                if (auto fail_reason = block.header.height == 0
-                    ? block.isGenesisBlockInvalidReason()
-                    : this.validateBlock(block))
+                if (auto fail_reason = this.validateBlock(block))
                     throw new Exception(
                         "A block loaded from disk is invalid: " ~
                         fail_reason);
@@ -303,9 +301,7 @@ public class Ledger
     public bool acceptBlock (const ref Block block,
         string file = __FILE__, size_t line = __LINE__) @safe
     {
-        if (auto fail_reason = block.header.height == 0
-            ? block.isGenesisBlockInvalidReason()
-            : this.validateBlock(block, file, line))
+        if (auto fail_reason = this.validateBlock(block, file, line))
         {
             log.trace("Rejected block: {}: {}", fail_reason, block.prettify());
             return false;
@@ -809,6 +805,9 @@ public class Ledger
     public string validateBlock (const ref Block block,
         string file = __FILE__, size_t line = __LINE__) nothrow @safe
     {
+        if (block.header.height == 0)
+            return block.isGenesisBlockInvalidReason();
+
         size_t active_enrollments = enroll_man.getValidatorCount(
                 block.header.height);
 
