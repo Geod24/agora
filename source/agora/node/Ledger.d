@@ -223,6 +223,15 @@ public class Ledger
         return last_block;
     }
 
+    /// Provide access to the underlying `IBlockStorage`
+    /// Note: For transition purpose only!
+    public final inout(IBlockStorage) blockStorage () inout return
+        @safe @nogc nothrow pure
+    {
+        return this.storage;
+    }
+
+
     /***************************************************************************
 
         Called when a consensus data set is externalized.
