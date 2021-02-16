@@ -869,28 +869,6 @@ public class Ledger
 
     /***************************************************************************
 
-        Get a range of blocks, starting from the provided block height.
-
-        Params:
-            start_height = the starting block height to begin retrieval from
-
-        Returns:
-            the range of blocks starting from start_height
-
-    ***************************************************************************/
-
-    public auto getBlocksFrom (Height start_height) @safe nothrow
-    {
-        start_height = min(start_height, this.getBlockHeight() + 1);
-
-        // Call to `Height.value` to work around
-        // https://issues.dlang.org/show_bug.cgi?id=21583
-        return iota(start_height.value, this.getBlockHeight() + 1)
-            .map!(idx => this.storage.readBlock(Height(idx)));
-    }
-
-    /***************************************************************************
-
         Generate the random seed reduced from the preimages for the provided
         block height.
 
@@ -1160,86 +1138,6 @@ version (unittest)
     }
 }
 
-///
-unittest
-{
-    scope ledger = new TestLedger(WK.Keys.NODE2);
-    assert(ledger.getBlockHeight() == 0);
-
-    auto blocks = ledger.getBlocksFrom(Height(0)).take(10);
-    assert(blocks[$ - 1] == ledger.params.Genesis);
-
-    // generate enough transactions to form a block
-    Transaction[] last_txs;
-    void genBlockTransactions (size_t count)
-    {
-        assert(count > 0);
-
-        // Special case for genesis
-        if (!last_txs.length)
-        {
-            last_txs = genesisSpendable().take(Block.TxsInTestBlock).enumerate()
-                .map!(en => en.value.refund(WK.Keys.A.address).sign())
-                .array();
-            last_txs.each!(tx => ledger.acceptTransaction(tx));
-            ledger.forceCreateBlock();
-            count--;
-        }
-
-        foreach (_; 0 .. count)
-        {
-            last_txs = last_txs.map!(tx => TxBuilder(tx).sign()).array();
-            last_txs.each!(tx => assert(ledger.acceptTransaction(tx)));
-            ledger.forceCreateBlock();
-        }
-    }
-
-    genBlockTransactions(2);
-    blocks = ledger.getBlocksFrom(Height(0)).take(10);
-    assert(blocks[0] == ledger.params.Genesis);
-    assert(blocks.length == 3);  // two blocks + genesis block
-
-    /// now generate 98 more blocks to make it 100 + genesis block (101 total)
-    genBlockTransactions(98);
-    assert(ledger.getBlockHeight() == 100);
-
-    blocks = ledger.getBlocksFrom(Height(0)).takeExactly(10);
-    assert(blocks[0] == ledger.params.Genesis);
-    assert(blocks.length == 10);
-
-    /// lower limit
-    blocks = ledger.getBlocksFrom(Height(0)).takeExactly(5);
-    assert(blocks[0] == ledger.params.Genesis);
-    assert(blocks.length == 5);
-
-    /// different indices
-    blocks = ledger.getBlocksFrom(Height(1)).takeExactly(10);
-    assert(blocks[0].header.height == 1);
-    assert(blocks.length == 10);
-
-    blocks = ledger.getBlocksFrom(Height(50)).takeExactly(10);
-    assert(blocks[0].header.height == 50);
-    assert(blocks.length == 10);
-
-    blocks = ledger.getBlocksFrom(Height(95)).take(10);  // only 6 left from here (block 100 included)
-    assert(blocks.front.header.height == 95);
-    assert(blocks.walkLength() == 6);
-
-    blocks = ledger.getBlocksFrom(Height(99)).take(10);  // only 2 left from here (ditto)
-    assert(blocks.front.header.height == 99);
-    assert(blocks.walkLength() == 2);
-
-    blocks = ledger.getBlocksFrom(Height(100)).take(10);  // only 1 block available
-    assert(blocks.front.header.height == 100);
-    assert(blocks.walkLength() == 1);
-
-    // over the limit => return up to the highest block
-    assert(ledger.getBlocksFrom(Height(0)).take(1000).walkLength() == 101);
-
-    // higher index than available => return nothing
-    assert(ledger.getBlocksFrom(Height(1000)).take(10).walkLength() == 0);
-}
-
 // Reject a transaction whose output value is 0
 unittest
 {
@@ -1249,8 +1147,7 @@ unittest
     auto txs = genesisSpendable().map!(txb => txb.sign()).array();
     txs.each!(tx => assert(ledger.acceptTransaction(tx)));
     ledger.forceCreateBlock();
-    auto blocks = ledger.getBlocksFrom(Height(0)).take(10);
-    assert(blocks.length == 2);
+    assert(ledger.getBlockHeight() == 1);
 
     // Invalid case
     txs = txs.map!(tx => TxBuilder(tx).sign()).array();
@@ -1263,8 +1160,7 @@ unittest
     }
 
     txs.each!(tx => assert(!ledger.acceptTransaction(tx)));
-    blocks = ledger.getBlocksFrom(Height(0)).take(10);
-    assert(blocks.length == 2);
+    assert(ledger.getBlockHeight() == 1);
 }
 
 /// basic block verification
@@ -1389,9 +1285,6 @@ unittest
     txs.each!(tx => assert(ledger.acceptTransaction(tx)));
     ledger.forceCreateBlock();
     assert(ledger.getBlockHeight() == 1);
-    auto blocks = ledger.getBlocksFrom(Height(0)).take(10).array;
-    assert(blocks.length == 2);
-    assert(blocks[1].header.height == 1);
 
     // Now generate a block with only freezing transactions
     txs.enumerate()
@@ -1401,9 +1294,6 @@ unittest
         .each!(tx => assert(ledger.acceptTransaction(tx)));
     ledger.forceCreateBlock();
     assert(ledger.getBlockHeight() == 2);
-    blocks = ledger.getBlocksFrom(Height(0)).take(10).array;
-    assert(blocks.length == 3);
-    assert(blocks[2].header.height == 2);
 }
 
 // Return Genesis block plus 'count' number of blocks
@@ -1657,11 +1547,8 @@ unittest
     txs.each!(tx => assert(ledger.acceptTransaction(tx)));
     ledger.forceCreateBlock();
     assert(ledger.getBlockHeight() == 2);
-    auto blocks = ledger.getBlocksFrom(Height(0)).take(10).array;
-    assert(blocks.length == 3);
-    assert(blocks[2].header.height == 2);
 
-    auto not_coinbase_txs = blocks[2].txs.filter!(tx =>
+    auto not_coinbase_txs = ledger.getLastBlock().txs.filter!(tx =>
         tx.type != TxType.Coinbase).array;
     foreach (ref tx; not_coinbase_txs)
     {
@@ -1679,9 +1566,6 @@ unittest
     txs.each!(tx => assert(ledger.acceptTransaction(tx)));
     ledger.forceCreateBlock();
     assert(ledger.getBlockHeight() == 3);
-    blocks = ledger.getBlocksFrom(Height(0)).take(10).array;
-    assert(blocks.length == 4);
-    assert(blocks[3].header.height == 3);
 }
 
 // create slashing data and check validity for that
@@ -1789,7 +1673,7 @@ unittest
     assert(ledger.getBlockHeight() == Height(10));
     ledger.enroll_man.clearExpiredValidators(Height(10));
     ledger.enroll_man.updateValidatorIndexMaps(Height(11));
-    auto b10 = ledger.getBlocksFrom(Height(10))[0];
+    auto b10 = ledger.getLastBlock();
     assert(b10.header.enrollments.length == 4);
 
     // block 11
@@ -1897,7 +1781,7 @@ unittest
 
     ledger.forceCreateBlock();
     assert(ledger.getBlockHeight() == blocks.length);
-    blocks ~= ledger.getBlocksFrom(Height(blocks.length))[0];
+    blocks ~= ledger.getLastBlock();
 
     // No Coinbase TX
     assert(blocks[$-1].txs.filter!(tx => tx.type == TxType.Coinbase)
@@ -1923,7 +1807,7 @@ unittest
 
         ledger.forceCreateBlock();
         assert(ledger.getBlockHeight() == blocks.length);
-        blocks ~= ledger.getBlocksFrom(Height(blocks.length))[0];
+        blocks ~= ledger.getLastBlock();
 
         auto cb_txs = blocks[$-1].txs.filter!(tx => tx.type == TxType.Coinbase)
             .array;

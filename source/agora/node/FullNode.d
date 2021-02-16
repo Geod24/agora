@@ -454,8 +454,14 @@ public class FullNode : API
     {
         this.endpoint_request_stats
             .increaseMetricBy!"agora_endpoint_calls_total"(1, "blocks_from", "http");
-        return this.ledger.getBlocksFrom(Height(block_height))
-            .take(min(max_blocks, MaxBatchBlocksSent)).array;
+
+        // Sincce this is used for catch-up, return the latest block at worst
+        block_height = min(block_height, this.ledger.getBlockHeight() + 1);
+
+        return iota(block_height, this.getBlockHeight() + 1)
+            .map!(idx => this.storage.readBlock(Height(idx)))
+            .take(min(max_blocks, MaxBatchBlocksSent))
+            .array;
     }
 
     /// GET: /blocks/:height
@@ -463,7 +469,7 @@ public class FullNode : API
     {
         this.endpoint_request_stats
             .increaseMetricBy!"agora_endpoint_calls_total"(1, "blocks", "http");
-        return this.ledger.getBlocksFrom(Height(height)).front();
+        return this.storage.readBlock(Height(height));
     }
 
     /// Start the StatsServer
