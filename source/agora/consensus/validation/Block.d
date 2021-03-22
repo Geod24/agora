@@ -201,7 +201,7 @@ public string isInvalidReason (in Block block, Engine engine, Height prev_height
         log.error("Only {} signed. Require more than {} out of {} validators to sign for externalizing slot height {}.",
                 signed, enrolled_validators / 2, enrolled_validators, block.header.height);
         return "Only " ~ to!string(signed) ~ " signed the block. Require more than " ~ to!string(enrolled_validators);
-        }
+    }
     foreach (idx; 0 .. enrolled_validators)
     {
         const K = getValidatorAtIndex(block.header.height, idx);
