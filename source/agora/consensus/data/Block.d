@@ -494,8 +494,8 @@ unittest
 
 *******************************************************************************/
 
-public Block makeNewBlock (Transactions)(const ref Block prev_block,
-    Transactions txs, ulong time_offset, Hash random_seed,
+public Block makeNewBlock (Transactions) (in Block prev_block,
+    Transactions txs, ulong time_offset, in Hash random_seed,
     Enrollment[] enrollments = null, uint[] missing_validators = null)
     @safe nothrow
 {
@@ -536,7 +536,7 @@ version (unittest)
         return 0;
     }
 
-    public Block makeNewTestBlock (Transactions)(const ref Block prev_block,
+    public Block makeNewTestBlock (Transactions)(in Block prev_block,
         Transactions txs, Hash random_seed = Hash.init,
         Enrollment[] enrollments = null, uint[] missing_validators = null,
         KeyPair[] keys = genesis_validator_keys,
