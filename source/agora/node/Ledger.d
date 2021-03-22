@@ -1932,6 +1932,7 @@ unittest
     assert(!ledger.externalize(data));
 
     auto last_block = ledger.getLastBlock();
-    const block = makeNewBlock(last_block, cb_tx_set, data.time_offset, getTestRandomSeed());
+    const block = makeNewBlock(last_block, cb_tx_set, data.time_offset,
+                               getTestRandomSeed(), null, null);
     assert(ledger.validateBlock(block) == "Block: Must contain other transactions than Coinbase");
 }

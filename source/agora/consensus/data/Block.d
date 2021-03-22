@@ -496,7 +496,7 @@ unittest
 
 public Block makeNewBlock (Transactions) (in Block prev_block,
     Transactions txs, ulong time_offset, in Hash random_seed,
-    Enrollment[] enrollments = null, uint[] missing_validators = null)
+    Enrollment[] enrollments, uint[] missing_validators)
     @safe nothrow
 {
     static assert (isInputRange!Transactions);

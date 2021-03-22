@@ -504,7 +504,7 @@ Outputs (1): GDGENES4...EDT4(61,000,000)
 
     const Block second_block = makeNewBlock(GenesisBlock,
         genesisSpendable().take(2).map!(txb => txb.sign(TxType.Payment,
-            null, Height(0), 0, &unlocker)), 0, Hash.init);
+            null, Height(0), 0, &unlocker)), 0, Hash.init, null, null);
 
     auto validators = BitField!ubyte(2);
     validators[1] = true;
