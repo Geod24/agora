@@ -453,7 +453,8 @@ public class EnrollmentManager
         };
 
         // Generate signature noise
-        const Pair noise = Pair.fromScalar(Scalar(hashMulti(key.secret, "consensus.signature.noise", offset)));
+        const Pair noise = Pair.fromScalar(
+            ConsensusParams.makeSecret(key, "consensus.signature.noise", offset));
 
         // We're done, sign & return
         result.enroll_sig = Pair(key.secret, key.address).sign(noise, result);
@@ -507,7 +508,7 @@ public class EnrollmentManager
     public Scalar getCommitmentNonceScalar (Height height) nothrow
     {
         ulong index = ulong((height - 1) / this.cycle.preimages.length());
-        return Scalar(hashMulti(this.key_pair.secret, "consensus.signature.noise", index));
+        return ConsensusParams.makeSecret(this.key_pair, "consensus.signature.noise", index);
     }
 
     /***************************************************************************

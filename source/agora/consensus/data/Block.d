@@ -781,6 +781,7 @@ version (unittest)
         ulong delegate (PublicKey) cycleForValidator,
         KeyPair[] keys) @trusted nothrow
     {
+        import agora.consensus.data.Params;
         import agora.crypto.ECC;
         import agora.crypto.Schnorr;
         import std.format;
@@ -794,8 +795,8 @@ version (unittest)
         void validatorSign (ulong i, KeyPair key)
         {
             // rc = r used in signing the commitment
-            const Scalar rc = Scalar(hashMulti(key.secret, "consensus.signature.noise",
-                cycleForValidator(key.address)));
+            const Scalar rc = ConsensusParams.makeSecret(key, "consensus.signature.noise",
+                cycleForValidator(key.address));
             const Scalar r = rc + challenge; // make it unique each challenge
             const Pair R = Pair.fromScalar(r);
             const K = Point(key.address[]);

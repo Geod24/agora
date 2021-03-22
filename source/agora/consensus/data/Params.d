@@ -8,6 +8,9 @@
     consensus-critical constants are the protocol-level constants, so they
     shouldn't be modified outside of test environments.
 
+    It also exposes basic (relying only on hash / signatures) utilities
+    to construct more advanced schemes, such as `makeSecret`.
+
     Copyright:
         Copyright (c) 2019-2020 BOS Platform Foundation Korea
         All rights reserved.
@@ -21,6 +24,8 @@ module agora.consensus.data.Params;
 
 import agora.common.Amount;
 import agora.consensus.data.Block;
+import agora.crypto.ECC;
+import agora.crypto.Hash;
 import agora.crypto.Key;
 
 import core.time;
@@ -88,6 +93,45 @@ public immutable class ConsensusParams
             quorum_threshold: quorum_threshold,
         };
         this(GenesisBlock, CommonsBudget.address, config);
+    }
+
+    /***************************************************************************
+
+        Expose a functionality to make predictable secrets
+
+        In some occasions, the node needs to generate a value that has to be
+        kept secret, needs not be reused (is random) and can be recovered in
+        case of crash.
+        As the only piece of data that is truly private to a node is
+        its private key, we use this as an input to a hash function to generate
+        such data. To avoid re-using the same value for different usage,
+        the function accepts a 'category', which is a constant string.
+        Finally, within a category, a nonce is used to allow for the same
+        category to have successive values. To avoid re-using the same value,
+        care should be taken to set 'nonce' properly,
+        usually based on the height.
+
+        An example usage of this method is when generating the signature noise
+        used for validating. In order to make the private `r` recoverable,
+        the value is generated through this function.
+
+        Params:
+            kp = KeyPair of the node to use
+            category = Name of the category to which this secret belongs
+            nonce = Nonce within the category for this secret
+
+        Returns:
+          The equivalent to `hash(kp, category, nonce)` reduced to a `Scalar`
+
+    ***************************************************************************/
+
+    public static Scalar makeSecret (in KeyPair kp, in char[] category, ulong nonce)
+        @safe nothrow @nogc
+    {
+        assert(kp.secret !is KeyPair.init.secret);
+        assert(category.length);
+
+        return Scalar(hashMulti(kp.secret, category, nonce));
     }
 }
 
