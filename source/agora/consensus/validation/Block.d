@@ -82,7 +82,6 @@ version (unittest)
         active_enrollments = the number of enrollments that do not expire
             at the next block height (prev_height + 1).
         enrolled_validators = the number of validators enrolled at this height
-        random_seed = Hash of random seed of the preimages
         getValidatorAtIndex = delegate to provide validator Point K for
             given height and index into map
         getCommitmentNonce = delegate to provide the commitment Nonce of the
@@ -103,7 +102,7 @@ version (unittest)
 public string isInvalidReason (in Block block, Engine engine, Height prev_height,
     in Hash prev_hash, scope UTXOFinder findUTXO, scope FeeChecker checkFee,
     scope EnrollmentFinder findEnrollment, size_t active_enrollments,
-    size_t enrolled_validators, in Hash random_seed,
+    size_t enrolled_validators,
     Point delegate (in Height, ulong) nothrow @safe getValidatorAtIndex,
     Point delegate (in Point, in Height) nothrow @safe getCommitmentNonce,
     ulong prev_time_offset, ulong curr_time_offset, Duration block_time_tolerance,
@@ -185,9 +184,6 @@ public string isInvalidReason (in Block block, Engine engine, Height prev_height
                                             block.header.height, findEnrollment))
             return fail_reason;
     }
-
-    if ( block.header.random_seed != random_seed)
-        return "Block: Header's random seed does not match that of known pre-images";
 
     Point sum_K;
     Point sum_R;
@@ -653,17 +649,14 @@ version (unittest)
     public string isValidcheck (in Block block, Engine engine, Height prev_height,
         Hash prev_hash, scope UTXOFinder findUTXO,
         size_t active_enrollments, size_t enrolled_validators, scope FeeChecker checkFee,
-        scope EnrollmentFinder findEnrollment, Hash random_seed = Hash.init,
+        scope EnrollmentFinder findEnrollment,
         ulong enrollment_cycle = 0, ulong prev_time_offset = 0, ulong curr_time_offset = ulong.max,
         Duration block_time_tolerance = 100.seconds,
         string file = __FILE__, size_t line = __LINE__) nothrow @safe
     {
-        if (random_seed == Hash.init)
-            random_seed = getTestRandomSeed();
-
         return isInvalidReason(block, engine, prev_height, prev_hash, findUTXO,
             checkFee, findEnrollment, active_enrollments, enrolled_validators,
-            random_seed, (in Height h, ulong i) @safe nothrow
+            (in Height h, ulong i) @safe nothrow
             {
                 return Point(genesis_validator_keys[i].address[]);
             },
@@ -687,24 +680,24 @@ version (unittest)
     public void assertValid (bool mustBeValid = true)
         (in Block block, Engine engine, Height prev_height, Hash prev_hash, scope UTXOFinder findUTXO,
         size_t active_enrollments, size_t enrolled_validators, scope FeeChecker checkFee,
-        scope EnrollmentFinder findEnrollment, Hash random_seed = Hash.init,
+        scope EnrollmentFinder findEnrollment,
         ulong enrollment_cycle = 0, ulong prev_time_offset = 0, ulong curr_time_offset = ulong.max,
         Duration block_time_tolerance = 100.seconds,
         string file = __FILE__, size_t line = __LINE__) nothrow @safe
     {
         string reason = isValidcheck(block, engine, prev_height, prev_hash, findUTXO,
             active_enrollments, enrolled_validators, checkFee, findEnrollment,
-            random_seed, enrollment_cycle, prev_time_offset, curr_time_offset,
+            enrollment_cycle, prev_time_offset, curr_time_offset,
             block_time_tolerance);
 
         bool success = mustBeValid ? (reason is null) : (reason !is null);
         if (!success)
         {
             log.error("{} block: {}", mustBeValid ? "Invalid" : "Valid", block);
-            log.error("prev: {} ({}), active: {}, enrolled: {}, random_seed: {}, " ~
+            log.error("prev: {} ({}), active: {}, enrolled: {}, " ~
                       "cycle: {}, prev_time_offset: {}, curr_time_offset: {}, tolerance: {}",
                       prev_height, prev_hash, active_enrollments, enrolled_validators,
-                      random_seed, enrollment_cycle, prev_time_offset,
+                      enrollment_cycle, prev_time_offset,
                       curr_time_offset, block_time_tolerance);
             log.error("Called from: {}:{}", file, line);
             assert(0, mustBeValid ?
@@ -1041,13 +1034,13 @@ unittest
         missing_validators);
     block3.assertValid(engine, block2.header.height, hashFull(block2.header), findUTXO,
         Enrollment.MinValidatorCount, genesis_validator_keys.length, checker,
-        findGenesisEnrollments, preimage_root);
+        findGenesisEnrollments);
     enrollments.sort!("a.utxo_key > b.utxo_key");
     findUTXO = utxo_set.getUTXOFinder();
     // Block: The enrollments are not sorted in ascending order
     block3.assertValid!false(engine, block2.header.height, hashFull(block2.header), findUTXO,
         Enrollment.MinValidatorCount, Enrollment.MinValidatorCount, checker,
-        findGenesisEnrollments, preimage_root);
+        findGenesisEnrollments);
 }
 
 /// test that there must always exist active validators
@@ -1183,8 +1176,7 @@ unittest
             missing_validators);
         assert(block3.header.enrollments.length == Enrollment.MinValidatorCount);
         block3.assertValid(engine, block2.header.height, hashFull(block2.header),
-            findUTXO, 0, genesis_validator_keys.length, checker, findGenesisEnrollments,
-            preimage_root);
+            findUTXO, 0, genesis_validator_keys.length, checker, findGenesisEnrollments);
     }
 
     // When there are still active validators at the new block height,

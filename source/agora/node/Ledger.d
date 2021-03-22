@@ -742,6 +742,10 @@ public class Ledger
         size_t active_enrollments = enroll_man.getValidatorCount(
                 block.header.height);
 
+        const Hash seed = this.getRandomSeed();
+        if (seed != block.header.random_seed)
+            return "Block: Header's random seed does not match that of known pre-images";
+
         return block.isInvalidReason(this.engine, this.last_block.header.height,
             this.last_block.header.hashFull,
             this.utxo_set.getUTXOFinder(),
@@ -749,7 +753,6 @@ public class Ledger
             this.enroll_man.getEnrollmentFinder(),
             this.enroll_man.getValidatorCount(block.header.height),
             this.enroll_man.getCountOfValidators(block.header.height),
-            this.getRandomSeed(),
             &this.enroll_man.getValidatorAtIndex,
             (in Point key, in Height height) @safe nothrow
             {
