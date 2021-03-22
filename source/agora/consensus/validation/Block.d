@@ -186,11 +186,8 @@ public string isInvalidReason (in Block block, Engine engine, Height prev_height
             return fail_reason;
     }
 
-    if (block.header.random_seed == Hash.init
-        || block.header.random_seed != random_seed)
-    {
+    if ( block.header.random_seed != random_seed)
         return "Block: Header's random seed does not match that of known pre-images";
-    }
 
     Point sum_K;
     Point sum_R;
