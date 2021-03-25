@@ -35,6 +35,9 @@ import VTx = agora.consensus.validation.Transaction;
 import agora.utils.Log;
 
 import std.algorithm;
+import std.conv;
+import std.range;
+import std.string;
 
 import core.time : Duration, seconds;
 
@@ -81,12 +84,7 @@ version (unittest)
         checkPayload = delegate for checking data payload
         active_enrollments = the number of enrollments that do not expire
             at the next block height (prev_height + 1).
-        enrolled_validators = the number of validators enrolled at this height
         random_seed = Hash of random seed of the preimages
-        getValidatorAtIndex = delegate to provide validator Point K for
-            given height and index into map
-        getCommitmentNonce = delegate to provide the commitment Nonce of the
-            validator given by it's Point K
         prev_time_offset = the time offset of the of the direct ancestor of this block
         curr_time_offset = the current time offset
         block_time_tolerance = the proposed block time offset should be less
@@ -103,19 +101,12 @@ version (unittest)
 public string isInvalidReason (in Block block, Engine engine, Height prev_height,
     in Hash prev_hash, scope UTXOFinder findUTXO, scope FeeChecker checkFee,
     scope EnrollmentFinder findEnrollment, size_t active_enrollments,
-    size_t enrolled_validators, in Hash random_seed,
-    Point delegate (in Height, in ulong) nothrow @safe getValidatorAtIndex,
-    Point delegate (in Point, in Height) nothrow @safe getCommitmentNonce,
-    ulong prev_time_offset, ulong curr_time_offset, Duration block_time_tolerance,
+    in Hash random_seed, ulong prev_time_offset, ulong curr_time_offset,
+    Duration block_time_tolerance,
     Transaction[] delegate (in Transaction[] tx_set, in uint[] missing_validators)
                                nothrow @safe getCoinbaseTX,
     string file = __FILE__, size_t line = __LINE__) nothrow @safe
 {
-    import std.algorithm;
-    import std.string;
-    import std.conv;
-    import std.range;
-
     if (block.header.height == 0)
         return "Block: Genesis block should be validated using isGenesisBlockInvalidReason";
 
@@ -192,6 +183,35 @@ public string isInvalidReason (in Block block, Engine engine, Height prev_height
         return "Block: Header's random seed does not match that of known pre-images";
     }
 
+    return validateBlockTimeOffset(prev_time_offset, block.header.time_offset,
+                                   curr_time_offset, block_time_tolerance);
+}
+
+/*******************************************************************************
+
+    Validate the signature of a block
+
+    Params:
+        block = the block to check the signature of
+        active_enrollments = the number of enrollments that do not expire
+            at the next block height (prev_height + 1).
+        enrolled_validators = the number of validators enrolled at this height
+        getValidatorAtIndex = delegate to provide validator Point K for
+            given height and index into map
+        getCommitmentNonce = delegate to provide the commitment Nonce of the
+            validator given by it's Point K
+
+    Returns:
+      An describing why validation failed, or `null` if no error were detected
+
+*******************************************************************************/
+
+public string isInvalidSigReason (
+    in Block block, size_t active_enrollments, size_t enrolled_validators,
+    scope Point delegate (in Height, in ulong) nothrow @safe getValidatorAtIndex,
+    scope Point delegate (in Point, in Height) nothrow @safe getCommitmentNonce,
+    string file, ulong line) @safe nothrow
+{
     Point sum_K;
     Point sum_R;
     const Scalar challenge = hashFull(block);
@@ -251,7 +271,7 @@ public string isInvalidReason (in Block block, Engine engine, Height prev_height
             file, line, enrolled_validators);
         return "Block: Invalid schnorr signature";
     }
-    return validateBlockTimeOffset(prev_time_offset, block.header.time_offset, curr_time_offset, block_time_tolerance);
+    return null;
 }
 
 /*******************************************************************************
@@ -664,9 +684,19 @@ version (unittest)
         if (random_seed == Hash.init)
             random_seed = getTestRandomSeed();
 
-        return isInvalidReason(block, engine, prev_height, prev_hash, findUTXO,
-            checkFee, findEnrollment, active_enrollments, enrolled_validators,
-            random_seed, (in Height h, in ulong i) @safe nothrow
+        if (auto reason = block.isInvalidReason(
+                engine, prev_height, prev_hash, findUTXO, checkFee, findEnrollment,
+                active_enrollments, random_seed, prev_time_offset,
+                (curr_time_offset == ulong.max) ? block.header.time_offset : curr_time_offset,
+                block_time_tolerance,
+                (in Transaction[] tx_set, in uint[] missing_validators)
+                {
+                    return (Transaction[]).init;
+                }, file, line)
+            )
+            return reason;
+        return block.isInvalidSigReason(active_enrollments, enrolled_validators,
+            (in Height h, in ulong i) @safe nothrow
             {
                 return Point(genesis_validator_keys[i].address[]);
             },
@@ -676,13 +706,7 @@ version (unittest)
                     lookupSecretKeyFromPoint(key),
                     "consensus.signature.noise", enrollment_cycle))
                     .toPoint();
-            },
-            prev_time_offset, (curr_time_offset == ulong.max) ? block.header.time_offset : curr_time_offset,
-            block_time_tolerance,
-            (in Transaction[] tx_set, in uint[] missing_validators)
-            {
-                return (Transaction[]).init;
-            });
+            }, file, line);
     }
 
     /// Helper function that will log the reason if the block turns out

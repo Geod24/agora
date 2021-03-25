@@ -736,31 +736,38 @@ public class Ledger
     public string validateBlock (in Block block,
         string file = __FILE__, size_t line = __LINE__) nothrow @safe
     {
+        import agora.consensus.validation.Block : isInvalidSigReason;
+
         if (block.header.height == 0)
             return block.isGenesisBlockInvalidReason();
 
         size_t active_enrollments = enroll_man.getValidatorCount(
                 block.header.height);
 
-        return block.isInvalidReason(this.engine, this.last_block.header.height,
-            this.last_block.header.hashFull,
-            this.utxo_set.getUTXOFinder(),
-            &this.fee_man.check,
-            this.enroll_man.getEnrollmentFinder(),
+        if (auto reason = block.isInvalidReason(
+                this.engine, this.last_block.header.height,
+                this.last_block.header.hashFull,
+                this.utxo_set.getUTXOFinder(),
+                &this.fee_man.check,
+                this.enroll_man.getEnrollmentFinder(),
+                this.enroll_man.getValidatorCount(block.header.height),
+                this.getRandomSeed(),
+                this.last_block.header.time_offset,
+                cast(ulong) this.clock.networkTime() - this.params.GenesisTimestamp,
+                block_time_offset_tolerance,
+                &this.getCoinbaseTX,
+                file, line))
+            return reason;
+
+        return block.isInvalidSigReason(
             this.enroll_man.getValidatorCount(block.header.height),
             this.enroll_man.getCountOfValidators(block.header.height),
-            this.getRandomSeed(),
             &this.enroll_man.getValidatorAtIndex,
             (in Point key, in Height height) @safe nothrow
             {
                 const PK = PublicKey(key[]);
                 return this.enroll_man.getCommitmentNonce(PK, block.header.height);
-            },
-            this.last_block.header.time_offset,
-            cast(ulong) this.clock.networkTime() - this.params.GenesisTimestamp,
-            block_time_offset_tolerance,
-            &this.getCoinbaseTX,
-            file, line);
+            }, file, line);
     }
 
     /***************************************************************************
