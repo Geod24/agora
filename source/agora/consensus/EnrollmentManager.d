@@ -1363,11 +1363,11 @@ unittest
     assert(man.addEnrollment(enroll, key_pair.address, Height(1),
             utxo_set.getUTXOFinder()));
 
-    assert(man.params.ValidatorCycle - 101 == 907); // Sanity check
+    assert(man.params.ValidatorCycle - 11 == 9); // Sanity check
     assert(man.getValidatorPreimage(utxo_hash) == PreImageInfo.init);
     assert(man.addValidator(enroll, key_pair.address, Height(2), &utxo_set.peekUTXO,
             utxos) is null);
-    auto preimage = PreImageInfo(utxo_hash, man.cycle.preimages[98], 907);
+    auto preimage = PreImageInfo(utxo_hash, man.cycle.preimages[8], 9);
     assert(man.addPreimage(preimage));
     assert(man.getValidatorPreimage(utxo_hash) == preimage);
 }
@@ -1506,23 +1506,23 @@ unittest
             utxos) is null);
     assert(man.getValidatorCount(block_height) == 3);  // updated
 
-    block_height = 5;    // valid block height : 0 <= H < 1008
+    block_height = 5;    // valid block height : 0 <= H < 20
     man.clearExpiredValidators(block_height);
     assert(man.getValidatorCount(block_height) == 3);  // not cleared yet
 
-    block_height = 1009; // valid block height : 2 <= H < 1010
+    block_height = Height(1 + params.ValidatorCycle); // valid block height : 2 <= H < 22
     man.clearExpiredValidators(block_height);
     assert(man.getValidatorCount(block_height) == 3);
 
-    block_height = 1010; // valid block height : 3 <= H < 1011
+    block_height = Height(2 + params.ValidatorCycle); // valid block height : 3 <= H < 23
     man.clearExpiredValidators(block_height);
     assert(man.getValidatorCount(block_height) == 2);
 
-    block_height = 1011; // valid block height : 4 <= H < 1012
+    block_height = Height(3 + params.ValidatorCycle); // valid block height : 4 <= H < 24
     man.clearExpiredValidators(block_height);
     assert(man.getValidatorCount(block_height) == 1);
 
-    block_height = 1012; // valid block height : 5 <= H < 1013
+    block_height = Height(4 + params.ValidatorCycle); // valid block height : 5 <= H < 25
     man.clearExpiredValidators(block_height);
     assert(man.getValidatorCount(block_height) == 0);
 }
@@ -1644,16 +1644,16 @@ unittest
 
     utxos.sort();  // must be sorted by enrollment key
     assert(man.getRandomSeed(utxos, Height(1)) ==
-        Hash(`0x348f4f51330674863fe6960715b693b0dd4a0865de9b70fc6527d368b7afcaa2c757b27d5d258135c48b68ea051babfbacad3fc1c4a5988ca88bc93d01c86579`),
+        Hash(`0x6e6ce785ae030501ecc02eced259cc3c983db1b54945133c20532c464525d0f34a226e7e68f8bcccf5dc359ff23ef579e4468fa995da5865440b740fbfef7a9d`),
         man.getRandomSeed(utxos, Height(1)).to!string);
 
-    assert(man.getRandomSeed(utxos, Height(504)) ==
-        Hash(`0xeae662a765560186a3e08d4dc965743917d06bac5fbd71c1483f891446fac972557a192e0a3e337c575c579702c7d75f896d4b454dab8112feb093e201e2cd1f`),
-        man.getRandomSeed(utxos, Height(504)).to!string);
+    assert(man.getRandomSeed(utxos, Height(params.ValidatorCycle / 2)) ==
+        Hash(`0x7c677094df080d03d2ce3b81a1289762da2338e2a20b74c284b9d8cf7d397c2024d255a421258dd560d646c6bea5d4e798aad196f1852215ba7920eee0bf18fb`),
+        man.getRandomSeed(utxos, Height(params.ValidatorCycle / 2)).to!string);
 
-    assert(man.getRandomSeed(utxos, Height(1008)) ==
-        Hash(`0xdbedac4b2a93a4a213ecc89e1d6aadad666ca36668621dc62f7fccc15d86c3481b8aed8d4b56c2a18ed800239e30aa2612283454378cc6e64d9baba0b91b2fc3`),
-        man.getRandomSeed(utxos, Height(1008)).to!string);
+    assert(man.getRandomSeed(utxos, Height(params.ValidatorCycle)) ==
+        Hash(`0xbb55db7687fd1a3fa29e0a31a0b0c8d6170408b68640ca0d1959786a747f5321e1dcc5ef2f6a3b52cbca587fb9eef3065f941cca07929bf6e2668cd38b28a21c`),
+        man.getRandomSeed(utxos, Height(params.ValidatorCycle)).to!string);
 }
 
 // Tests for get/set a enrollment key
