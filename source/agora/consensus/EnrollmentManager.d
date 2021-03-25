@@ -477,6 +477,16 @@ public class EnrollmentManager
         return makeEnrollment(utxo, key, cache[$ - offset - 1], cycle_length, offset);
     }
 
+    /// Ditto
+    version (unittest) public static Enrollment makeEnrollment (
+        in Hash utxo, in KeyPair key, in Height height, uint cycle_length)
+        @trusted nothrow
+    {
+        // Generate the random seed to use
+        auto cache = PreImageCycle(key.secret, cycle_length);
+        return makeEnrollment(utxo, key, cache[height], cycle_length, cache.nonce);
+    }
+
     /***************************************************************************
 
         Retrieves the R from the (R, s) of the signature in the commitment
