@@ -189,93 +189,6 @@ public string isInvalidReason (in Block block, Engine engine, Height prev_height
 
 /*******************************************************************************
 
-    Validate the signature of a block
-
-    Params:
-        block = the block to check the signature of
-        active_enrollments = the number of enrollments that do not expire
-            at the next block height (prev_height + 1).
-        enrolled_validators = the number of validators enrolled at this height
-        getValidatorAtIndex = delegate to provide validator Point K for
-            given height and index into map
-        getCommitmentNonce = delegate to provide the commitment Nonce of the
-            validator given by it's Point K
-
-    Returns:
-      An describing why validation failed, or `null` if no error were detected
-
-*******************************************************************************/
-
-public string isInvalidSigReason (
-    in Block block, size_t active_enrollments, size_t enrolled_validators,
-    scope Point delegate (in Height, in ulong) nothrow @safe getValidatorAtIndex,
-    scope Point delegate (in Point, in Height) nothrow @safe getCommitmentNonce,
-    string file, ulong line) @safe nothrow
-{
-    Point sum_K;
-    Point sum_R;
-    const Scalar challenge = hashFull(block);
-
-    log.trace("Validators expected to sign this block is {}", enrolled_validators);
-    // Check that more than half have signed
-    auto signed = iota(0, enrolled_validators).filter!(i => block.header.validators[i]).count();
-    if (signed <= enrolled_validators / 2)
-    {
-        log.error("Only {} signed. Require more than {} out of {} validators to sign for externalizing slot height {}.",
-                signed, enrolled_validators / 2, enrolled_validators, block.header.height);
-        return "Only " ~ to!string(signed) ~ " signed the block. Require more than " ~ to!string(enrolled_validators);
-        }
-    foreach (idx; 0 .. enrolled_validators)
-    {
-        const K = getValidatorAtIndex(block.header.height, idx);
-        log.trace("idx {} PublicKey: {}", idx, PublicKey(K[]));
-        if (K == Point.init)
-        {
-            log.error("[{}:{}] idx #{}: Validator {} not found for height {}",
-                file, line, idx, PublicKey(K[]), block.header.height);
-            return "Block: Couldn't find a Validator for the given index "
-                ~ to!string(idx) ~ " at height " ~ to!string(block.header.height.value);
-        }
-        if (!block.header.validators[idx])
-        {
-            log.trace("[{}:{}] idx #{}: Validator {} has not yet signed block height {}",
-                file, line, idx, PublicKey(K[]), block.header.height);
-            continue;  // this validator hasn't signed yet
-        }
-
-        const CR = getCommitmentNonce(K, block.header.height);  // commited R
-        log.trace("Block.isInvalidReason: Enrollment commitment CR for validator {} is {}", PublicKey(K[]), CR);
-        if (CR == Point.init)
-            return "Block: Couldn't find commitment for this validator";
-        Point R = CR + challenge.toPoint();
-        log.trace("Block.isInvalidReason: Block signing commitment R for validator {} is {}", PublicKey(K[]), R);
-        sum_K = sum_K == Point.init ? K : (sum_K + K);
-        sum_R = sum_R == Point.init ? R : (sum_R + R);
-    }
-    if (sum_K == Point.init)
-    {
-        log.error("[{}:{}] Block: Not able to check the multi sig schnorr signature for any of the {} active validators at height {}",
-            file, line, active_enrollments, block.header.height);
-        return "Block: Not enough info to verify schnorr signature at height " ~ to!string(block.header.height.value);
-    }
-    Signature sig = block.header.signature;
-    if (sum_R != sig.R)
-    {
-        log.error("[{}:{}] Block: Invalid schnorr signature for {} active validators. Sum of R mismatch",
-            file, line, enrolled_validators);
-        return "Block: Invalid schnorr signature";
-    }
-    if (!verify(sig, challenge, sum_K))
-    {
-        log.error("[{}:{}] Block: Invalid schnorr signature for {} active validators. Multisig failed verification",
-            file, line, enrolled_validators);
-        return "Block: Invalid schnorr signature";
-    }
-    return null;
-}
-
-/*******************************************************************************
-
     Check the validity of the `time offset` for a block
 
     new_block_offset is valid if and only if
@@ -684,28 +597,14 @@ version (unittest)
         if (random_seed == Hash.init)
             random_seed = getTestRandomSeed();
 
-        if (auto reason = block.isInvalidReason(
-                engine, prev_height, prev_hash, findUTXO, checkFee, findEnrollment,
-                active_enrollments, random_seed, prev_time_offset,
-                (curr_time_offset == ulong.max) ? block.header.time_offset : curr_time_offset,
-                block_time_tolerance,
-                (in Transaction[] tx_set, in uint[] missing_validators)
-                {
-                    return (Transaction[]).init;
-                }, file, line)
-            )
-            return reason;
-        return block.isInvalidSigReason(active_enrollments, enrolled_validators,
-            (in Height h, in ulong i) @safe nothrow
+        return block.isInvalidReason(
+            engine, prev_height, prev_hash, findUTXO, checkFee, findEnrollment,
+            active_enrollments, random_seed, prev_time_offset,
+            (curr_time_offset == ulong.max) ? block.header.time_offset : curr_time_offset,
+            block_time_tolerance,
+            (in Transaction[] tx_set, in uint[] missing_validators)
             {
-                return Point(genesis_validator_keys[i].address[]);
-            },
-            (in Point key, in Height height) @trusted nothrow
-            {
-                return Scalar(hashMulti(
-                    lookupSecretKeyFromPoint(key),
-                    "consensus.signature.noise", enrollment_cycle))
-                    .toPoint();
+                return (Transaction[]).init;
             }, file, line);
     }
 
