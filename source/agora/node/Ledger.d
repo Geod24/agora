@@ -1077,7 +1077,8 @@ public class ValidatingLedger : Ledger
         assert(data.tx_set.length - pre_cb_len <= 1);
     }
 
-    version (unittest)
+    version (unittest):
+
     private bool externalize (ConsensusData data,
         string file = __FILE__, size_t line = __LINE__)
         @trusted
@@ -1111,6 +1112,20 @@ public class ValidatingLedger : Ledger
             data.time_offset);
         return this.acceptBlock(block, file, line);
     }
+
+    /// simulate block creation as if a nomination and externalize round completed
+    private void forceCreateBlock (ulong max_txs = Block.TxsInTestBlock,
+        string file = __FILE__, size_t line = __LINE__)
+    {
+        ConsensusData data;
+        this.prepareNominatingSet(data, max_txs);
+        assert(data.tx_set.length >= max_txs);
+        if (!this.externalize(data, file, line))
+        {
+            assert(0, format!"Failure in unit test. Block %s should have been externalized!"(
+                       this.getBlockHeight() + 1));
+        }
+    }
 }
 
 /// Note: these unittests historically assume a block always contains
@@ -1118,19 +1133,6 @@ public class ValidatingLedger : Ledger
 version (unittest)
 {
     import core.stdc.time : time;
-
-    /// simulate block creation as if a nomination and externalize round completed
-    private void forceCreateBlock (ValidatingLedger ledger, ulong max_txs = Block.TxsInTestBlock,
-        string file = __FILE__, size_t line = __LINE__)
-    {
-        ConsensusData data;
-        ledger.prepareNominatingSet(data, max_txs);
-        assert(data.tx_set.length >= max_txs);
-        if (!ledger.externalize(data, file, line))
-        {
-            assert(0, format!"Failure in unit test. Block %s should have been externalized!"(ledger.getBlockHeight() + 1));
-        }
-    }
 
     /// A `Ledger` with sensible defaults for `unittest` blocks
     private final class TestLedger : ValidatingLedger
