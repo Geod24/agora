@@ -24,8 +24,8 @@ import agora.consensus.data.Enrollment;
 import agora.consensus.data.Transaction;
 import agora.consensus.data.Block;
 import agora.consensus.EnrollmentManager;
+import agora.consensus.Ledger;
 import agora.crypto.Hash;
-import agora.node.Ledger;
 import geod24.Registry;
 
 unittest

@@ -199,7 +199,6 @@ unittest
     import agora.consensus.protocol.Nominator;
     import agora.consensus.protocol.Data;
     import agora.consensus.data.genesis.Test;
-    import agora.node.Ledger;
     import agora.node.Validator;
 
     import geod24.Registry;

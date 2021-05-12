@@ -54,7 +54,6 @@ import agora.network.Clock;
 import agora.network.Manager;
 import agora.node.BlockStorage;
 import agora.node.FullNode;
-import agora.node.Ledger;
 import agora.node.TransactionPool;
 import agora.node.Validator;
 import agora.registry.API;

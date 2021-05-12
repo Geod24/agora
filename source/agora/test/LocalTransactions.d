@@ -18,11 +18,11 @@ version (unittest):
 
 import agora.consensus.data.Transaction;
 import agora.consensus.Fee;
+import agora.consensus.Ledger;
 import agora.common.Task;
 import agora.common.Config;
 import agora.common.Metadata;
 import agora.crypto.Hash;
-import agora.node.Ledger;
 import agora.test.Base;
 import agora.utils.Log;
 import agora.script.Engine;
