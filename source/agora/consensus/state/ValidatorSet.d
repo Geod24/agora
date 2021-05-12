@@ -766,6 +766,40 @@ public class ValidatorSet
         return Height(height <= this.params.ValidatorCycle ? 0
             : height - this.params.ValidatorCycle);
     }
+
+    /***************************************************************************
+
+        Given a PublicKey, find a validator's informations
+
+        This is, and should be, only used for unittest purposes, as validators
+        should usually be referenced via their collateral, not their public key.
+
+        Params:
+            pubkey = the key by which the validator set searches enrollment
+            height = The minimum height at which this validator enrolled
+
+        Returns:
+            The hash of the enrolled UTXO
+
+    ***************************************************************************/
+
+    version (unittest)
+    public Hash getValidatorUTXO (in PublicKey pubkey, in Height height)
+        @trusted
+    {
+        import std.format;
+
+        auto results = this.db.execute(
+            "SELECT key FROM validator " ~
+            "WHERE public_key = ? AND enrolled_height >= ? " ~
+            "ORDER BY enrolled_height DESC", pubkey, height);
+
+        if (results.empty)
+            throw new Exception(
+                format("Could not find a validator with public key %s at height %s", pubkey, height));
+
+        return Hash(results.front.peek!(const(char)[], PeekMode.slice)(0));
+    }
 }
 
 /// test for functions of ValidatorSet

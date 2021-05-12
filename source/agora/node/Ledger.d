@@ -1241,6 +1241,32 @@ public class ValidatingLedger : Ledger
         this.forceCreateBlock(txs, file, line);
         return last_txs;
     }
+
+    /// Propagate pre-images for a given validator at a given height
+    public void propagatePreImages (in PublicKey key, in Height height)
+    {
+        import agora.consensus.PreImage;
+
+        const utxo = this.enroll_man.validator_set.getValidatorUTXO(key, Height(0));
+        auto cycle = PreImageCycle(WK.Keys[key].secret, this.params.ValidatorCycle);
+
+        PreImageInfo infos = {
+            utxo: utxo,
+            hash: cycle[height],
+            height: height,
+        };
+
+        assert(this.enrollment_manager.addPreimage(infos));
+    }
+
+    /// Propagate pre-images for all active validator at a given height
+    public void propagatePreImages (in Height height)
+    {
+        PublicKey[] keys;
+        assert(this.enroll_man.validator_set.getActiveValidatorPublicKeys(keys, height));
+        foreach (k; keys)
+            this.propagatePreImages(k, height);
+    }
 }
 
 /// Note: these unittests historically assume a block always contains
